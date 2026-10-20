@@ -1,7 +1,6 @@
-# Własna usługa — LAB1
+# Membership Service — LAB1
 
-To szablon do uzupełnienia. Zastąp wskazówki własnymi decyzjami i wynikami. Obowiązuje zakres z instrukcji [LAB1](../) otrzymanej wraz z materiałami. Starter zawiera wyłącznie `/health`, pusty magazyn w pamięci i test startowy.
-
+Pierwsza usługa systemu zarządzania klubem fitness. Obsługuje karnety członków klubu: ich zakładanie, odczyt oraz zawieszanie i wznawianie.
 ## Uruchomienie i testy
 
 Wymagania: Python 3.12 lub nowszy, PowerShell. Otwórz terminal w katalogu z tym README i `requirements.txt`.
@@ -13,18 +12,49 @@ python -m venv .venv
 .\.venv\Scripts\python.exe -m uvicorn app.main:app --reload --port 8101
 ```
 
-W drugim terminalu: `Invoke-RestMethod http://localhost:8101/health`. Dokumentacja: [Swagger UI](http://localhost:8101/docs). Zatrzymanie serwera: `Ctrl+C`. Nie trzeba aktywować środowiska. Zmień `replace-me` w aplikacji i teście na nazwę usługi.
+W drugim terminalu: `Invoke-RestMethod http://localhost:8101/health`. Dokumentacja: [Swagger UI](http://localhost:8101/docs). Zatrzymanie serwera: `Ctrl+C`. Nie trzeba aktywować środowiska.
 
 ## 1. Problem i granice
 
-Opisz problem, użytkownika oraz zakres odpowiedzialności usługi. Wypisz także to, za co usługa nie odpowiada. Zdefiniuj 3–5 pojęć domenowych.
+### 1.1. Problem: 
+Klub fitness prowadzi zajęcia grupowe z limitem miejsc. Bez jednego źródła prawdy o karnetach na zajęcia zapisują się osoby z nieważnym lub zawieszonym karnetem, a recepcja nie ma jak szybko sprawdzić uprawnień członka.
 
-| Planowana usługa | Odpowiedzialność | Własne dane | Operacje | Potrzebne informacje od innej usługi |
-|---|---|---|---|---|
-| Pierwsza — implementowana teraz | ... | ... | ... | ... |
-| Druga — implementowana później | ... | ... | ... | ... |
+### 1.2. Użytkownicy:
+Członek klubu (sprawdza karnet, zawiesza go), recepcja (zakłada, zawiesza i wznawia karnety), inne usługi systemu (Booking Service sprawdza ważność karnetu przy zapisie na zajęcia).
 
-Wyjaśnij granice biznesowe i właściciela zapisu danych. Opisz jedno przyszłe wywołanie HTTP między usługami: nadawca, odbiorca, metoda, ścieżka, żądanie, odpowiedź i zachowanie przy niedostępności odbiorcy. Na LAB1 nie implementujesz tego połączenia.
+### 1.3. Usługa odpowiada za:
+- przechowywanie karnetów członków i ich okresu ważności
+- typy karnetów (open, morning, gym_only)
+- zawieszanie i wznawianie karnetu
+
+### 1.4. Usługa nie odpowiada za:
+- dane osobowe członków (przechowuje tylko member_id)
+- płatności za karnety
+- trenerów, zajęcia i zapisy na zajęcia
+
+### 1.5. Pojęcia domenowe:
+- **Członek** - osoba z kontem w klubie, identyfikowana przez member_id (np. U-100). Jej dane należą do innej usługi.
+- **Karnet** - uprawnienie członka do korzystania z klubu w okresie od - do
+- **Typ karnetu** - wariant oferty: open (bez ograniczeń), morning (tylko rano), gym_only (bez zajęć grupowych)
+- **Zawieszenie** - czasowe wstrzymanie karnetu na 1–30 dni. Przesuwa valid_to o liczbę dni zawieszenia
+- **Aktualny karnet** - karnet w statusie active lub suspended; członek może mieć tylko jeden
+
+| Planowana usługa                   | Odpowiedzialność | Własne dane | Operacje | Potrzebne informacje od innej usługi     |
+|------------------------------------|---|---|---|------------------------------------------|
+| Pierwsza — implementowana teraz - Membership Service (port 8101) | karnety członków i ich ważność | karnety: member_id, typ, okres ważności, status, data końca zawieszenia| lista, szczegóły, założenie karnetu, zawieszenie, wznowienie| czy członek o danym ```member_id``` istnieje |
+| Druga — implementowana później     | ... | ... | ... | ...                                      |
+
+### 1.6. Granice i właściciele danych
+Karnety zapisuje wyłącznie Membership Service (zmiany zleca recepcja, zawieszenie także członek). Dostępność trenera zapisuje wyłącznie Trainer Service (zmienia ją trener). Pozostałe usługi systemu realizuje druga osoba w parze: Class Service (zajęcia, limity miejsc) i Booking Service (zapisy, lista rezerwowa). Podział wynika z odpowiedzialności biznesowej, a nie z tabel. Membership odpowiada na pytanie czy członek ma prawo korzystać z klubu, a Booking czy ma miejsce na konkretnych zajęciach. To różne reguły, zmieniane przez różne osoby i z różną częstotliwością.
+
+### Przyszłe wywołanie HTTP
+- Nadawca: Booking Service, odbiorca: Membership Service,
+- metoda i ścieżka: ``GET /memberships?member_id=U-100`` (filtr do dodania w kolejnych etapach)
+- żądanie: brak body, parametr ``member_id``w adresie,
+- odpowiedź 200: <br>
+``  [{"id": "M-001", "member_id": "U-100", "type": "open", "valid_from": "2026-10-01", "valid_to": "2026-12-31", "status": "active", "suspended_until": null}]``
+- karnet active i typ inny niż gym_only -> Booking tworzy zapis <br> pusta lista, inny status lub gym_only -> Booking odrzuca zapis kodem 409,
+- niedostępność odbiorcy (timeout 2 s lub błąd połączenia) -> Booking zwraca 503 i nie tworzy zapisu.
 
 ## 2. Model i reguła biznesowa
 
