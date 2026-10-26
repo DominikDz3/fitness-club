@@ -1,12 +1,3 @@
-import pytest
-from fastapi.testclient import TestClient
-
-from app.main import create_app
-
-@pytest.fixture
-def client():
-    return TestClient(create_app())
-
 def test_list_and_details(client):
     r = client.get("/memberships")
     assert r.status_code == 200
