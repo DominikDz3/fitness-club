@@ -61,7 +61,7 @@ def create_app() -> FastAPI:
     def get_or_404(membership_id: str) -> Membership:
         membership = store.get(membership_id)
         if membership is None:
-            raise HTTPException(status_code=404, detail="Nie znaleziono karnetu")
+            raise HTTPException(status_code=404, detail="Membership not found")
         return membership
 
     @app.get("/health")
@@ -83,7 +83,7 @@ def create_app() -> FastAPI:
             for m in store.values()
         )
         if has_current:
-            raise HTTPException(status_code=409, detail="Członek ma już karnet")
+            raise HTTPException(status_code=409, detail="Member already has a current membership")
 
         membership_id = f"M-{next(next_id):03d}"
         membership = Membership(id=membership_id, status="active", **payload.model_dump())
@@ -94,7 +94,7 @@ def create_app() -> FastAPI:
     def suspend_membership(membership_id: str, payload: SuspendRequest):
         membership = get_or_404(membership_id)
         if membership.status != "active":
-            raise HTTPException(status_code=409, detail=f"Nie można zawiesić karnetu o statusie: '{membership.status}'")
+            raise HTTPException(status_code=409, detail=f"Cannot suspend membership with status '{membership.status}'")
 
         updated = membership.model_copy(update={
             "status": "suspended",
@@ -108,7 +108,7 @@ def create_app() -> FastAPI:
     def resume_membership(membership_id: str):
         membership = get_or_404(membership_id)
         if membership.status != "suspended":
-            raise HTTPException(status_code=409, detail=f"Nie można wznowić karnetu o statusie: '{membership.status}'")
+            raise HTTPException(status_code=409, detail=f"Cannot resume membership with status '{membership.status}'")
 
         updated = membership.model_copy(update={"status": "active", "suspended_until": None})
         store[membership_id] = updated
