@@ -1,117 +1,106 @@
-from datetime import date, timedelta
-from itertools import count
-from typing import Literal
+import os
+from contextlib import asynccontextmanager
 
-from fastapi import FastAPI, HTTPException
-from pydantic import BaseModel, Field, model_validator
+from fastapi import FastAPI, HTTPException, Request, Response
+
+from app import db_models  # noqa: F401  rejestruje tabele w Base.metadata
+from app.cache import JsonCache, make_redis
+from app.database import Base, make_database
+from app.models import Membership, MembershipCreate, SuspendRequest
+from app.repository import MembershipConflict, MembershipNotFound, MembershipRepository
 
 SERVICE_NAME = "membership-service"
 
-MembershipType = Literal["open", "morning", "gym_only"]
-MembershipStatus = Literal["active", "suspended", "expired"]
 
+def create_app(database_url=None, redis_client=None) -> FastAPI:
+    @asynccontextmanager
+    async def lifespan(app):
+        engine, sessions = make_database(
+            database_url or os.getenv("DATABASE_URL", "sqlite:///./app.db")
+        )
+        client = None
+        try:
+            client = redis_client if redis_client is not None else make_redis(
+                os.getenv("REDIS_URL", "redis://localhost:6379/0")
+            )
+            Base.metadata.create_all(engine)
+            repository = MembershipRepository(sessions)
+            repository.seed()
+            app.state.engine = engine
+            app.state.redis = client
+            app.state.repository = repository
+            app.state.cache = JsonCache(
+                client,
+                prefix=os.getenv("CACHE_PREFIX", "lab2:fitness-club:membership-service"),
+                ttl=int(os.getenv("CACHE_TTL_SECONDS", "60")),
+                resource_name="membership",
+            )
+            yield
+        finally:
+            try:
+                if client is not None:
+                    client.close()
+            finally:
+                engine.dispose()
 
-class MembershipCreate(BaseModel):
-    member_id: str = Field(min_length=1, max_length=50)
-    type: MembershipType
-    valid_from: date
-    valid_to: date
-
-    @model_validator(mode="after")
-    def check_dates(self):
-        if self.valid_to <= self.valid_from:
-            raise ValueError("valid_to must be after valid_from")
-        return self
-
-
-class Membership(BaseModel):
-    id: str
-    member_id: str
-    type: MembershipType
-    valid_from: date
-    valid_to: date
-    status: MembershipStatus
-    suspended_until: date | None = None
-
-
-class SuspendRequest(BaseModel):
-    days: int = Field(ge=1, le=30)
-
-
-def seed_data() -> dict[str, Membership]:
-    return {
-        "M-001": Membership(
-            id="M-001", member_id="U-100", type="open",
-            valid_from=date(2026, 10, 1), valid_to=date(2026, 12, 31),
-            status="active",
-        ),
-        "M-002": Membership(
-            id="M-002", member_id="U-200", type="morning",
-            valid_from=date(2026, 9, 1), valid_to=date(2026, 11, 30),
-            status="suspended", suspended_until=date(2026, 10, 25),
-        ),
-    }
-
-
-def create_app() -> FastAPI:
-    app = FastAPI(title="Membership Service")
-    store = seed_data()
-    next_id = count(len(store) + 1)
-
-    def get_or_404(membership_id: str) -> Membership:
-        membership = store.get(membership_id)
-        if membership is None:
-            raise HTTPException(status_code=404, detail="Nie znaleziono karnetu")
-        return membership
+    app = FastAPI(title="Membership Service", lifespan=lifespan)
 
     @app.get("/health")
     def health():
         return {"status": "ok", "service": SERVICE_NAME}
 
     @app.get("/memberships", response_model=list[Membership])
-    def list_memberships():
-        return list(store.values())
+    def list_memberships(request: Request):
+        return request.app.state.repository.list()
 
     @app.get("/memberships/{membership_id}", response_model=Membership)
-    def get_membership(membership_id: str):
-        return get_or_404(membership_id)
+    def get_membership(membership_id: str, request: Request, response: Response):
+        cache = request.app.state.cache
+        cached, source = cache.get(membership_id)
+        if cached is not None:
+            response.headers["X-Cache"] = source
+            return cached
+
+        try:
+            membership = request.app.state.repository.get(membership_id)
+        except MembershipNotFound as exc:
+            raise HTTPException(status_code=404, detail="Membership not found") from exc
+
+        payload = membership.model_dump(mode="json")
+        if source != "BYPASS" and not cache.put(membership_id, payload):
+            source = "BYPASS"
+        response.headers["X-Cache"] = source
+        return payload
 
     @app.post("/memberships", response_model=Membership, status_code=201)
-    def create_membership(payload: MembershipCreate):
-        has_current = any(
-            m.member_id == payload.member_id and m.status in ("active", "suspended")
-            for m in store.values()
-        )
-        if has_current:
-            raise HTTPException(status_code=409, detail="Członek ma już karnet")
-
-        membership_id = f"M-{next(next_id):03d}"
-        membership = Membership(id=membership_id, status="active", **payload.model_dump())
-        store[membership_id] = membership
-        return membership
+    def create_membership(payload: MembershipCreate, request: Request):
+        try:
+            return request.app.state.repository.create(payload)
+        except MembershipConflict as exc:
+            raise HTTPException(status_code=409, detail=str(exc)) from exc
 
     @app.patch("/memberships/{membership_id}/suspend", response_model=Membership)
-    def suspend_membership(membership_id: str, payload: SuspendRequest):
-        membership = get_or_404(membership_id)
-        if membership.status != "active":
-            raise HTTPException(status_code=409, detail=f"Nie można zawiesić karnetu o statusie: '{membership.status}'")
+    def suspend_membership(membership_id: str, payload: SuspendRequest, request: Request):
+        try:
+            updated = request.app.state.repository.suspend(membership_id, payload.days)
+        except MembershipNotFound as exc:
+            raise HTTPException(status_code=404, detail="Membership not found") from exc
+        except MembershipConflict as exc:
+            raise HTTPException(status_code=409, detail=str(exc)) from exc
 
-        updated = membership.model_copy(update={
-            "status": "suspended",
-            "suspended_until": date.today() + timedelta(days=payload.days),
-            "valid_to": membership.valid_to + timedelta(days=payload.days),
-        })
-        store[membership_id] = updated
+        request.app.state.cache.delete(membership_id)
         return updated
 
     @app.patch("/memberships/{membership_id}/resume", response_model=Membership)
-    def resume_membership(membership_id: str):
-        membership = get_or_404(membership_id)
-        if membership.status != "suspended":
-            raise HTTPException(status_code=409, detail=f"Nie można wznowić karnetu o statusie: '{membership.status}'")
+    def resume_membership(membership_id: str, request: Request):
+        try:
+            updated = request.app.state.repository.resume(membership_id)
+        except MembershipNotFound as exc:
+            raise HTTPException(status_code=404, detail="Membership not found") from exc
+        except MembershipConflict as exc:
+            raise HTTPException(status_code=409, detail=str(exc)) from exc
 
-        updated = membership.model_copy(update={"status": "active", "suspended_until": None})
-        store[membership_id] = updated
+        request.app.state.cache.delete(membership_id)
         return updated
 
     return app
