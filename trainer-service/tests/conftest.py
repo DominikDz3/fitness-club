@@ -1,3 +1,5 @@
+from urllib.error import HTTPError
+
 import pytest
 from fastapi.testclient import TestClient
 from redis.exceptions import ConnectionError
@@ -40,10 +42,25 @@ class MemoryRedis:
         pass
 
 
-class FakeEurekaClient:
-    """Zamiennik klienta Eureki: nie łączy się z rejestrem, liczy start() i stop()."""
+MEMBERSHIPS = {
+    "M-001": {"id": "M-001", "member_id": "U-100", "type": "open",
+              "valid_from": "2026-10-01", "valid_to": "2026-12-31",
+              "status": "active", "suspended_until": None},
+    "M-002": {"id": "M-002", "member_id": "U-200", "type": "morning",
+              "valid_from": "2026-09-01", "valid_to": "2026-11-30",
+              "status": "suspended", "suspended_until": "2026-10-25"},
+}
 
-    def __init__(self):
+
+class FakeEurekaClient:
+    """Zamiennik klienta Eureki: nie łączy się z rejestrem, liczy start() i stop()
+    i odpowiada jak Membership Service z danymi początkowymi LAB2."""
+
+    def __init__(self, memberships=None, error=None, response=None):
+        self.memberships = MEMBERSHIPS if memberships is None else memberships
+        self.error = error
+        self.response = response
+        self.calls = []
         self.starts = 0
         self.stops = 0
 
@@ -52,6 +69,17 @@ class FakeEurekaClient:
 
     async def stop(self):
         self.stops += 1
+
+    async def do_service(self, app_name, service, return_type=None, timeout=None):
+        self.calls.append((app_name, service, return_type, timeout))
+        if self.error is not None:
+            raise self.error
+        if self.response is not None:
+            return self.response
+        membership_id = service.rsplit("/", 1)[-1]
+        if app_name == "MEMBERSHIP-SERVICE" and membership_id in self.memberships:
+            return dict(self.memberships[membership_id])
+        raise HTTPError(f"http://membership{service}", 404, "Not Found", {}, None)
 
 
 @pytest.fixture

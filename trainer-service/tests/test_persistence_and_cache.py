@@ -5,7 +5,7 @@ from app.main import create_app
 from tests.conftest import CACHE_PREFIX, FakeEurekaClient, MemoryRedis
 
 T001_KEY = f"{CACHE_PREFIX}:trainer:T-001"
-SESSION = {"trainer_id": "T-001", "membership_id": "M-002",
+SESSION = {"trainer_id": "T-001", "membership_id": "M-001",
            "starts_at": "2026-11-16T10:00:00", "ends_at": "2026-11-16T11:00:00"}
 
 

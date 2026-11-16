@@ -2,12 +2,14 @@ import os
 from contextlib import asynccontextmanager
 
 from fastapi import FastAPI, Request, Response
+from fastapi.concurrency import run_in_threadpool
 from fastapi.responses import JSONResponse
 
 from app import db_models  # noqa: F401  rejestruje tabele w Base.metadata
 from app.cache import JsonCache, make_redis
 from app.database import Base, make_database
 from app.eureka import create_eureka_client
+from app.membership_client import ensure_membership_allows_session
 from app.models import (
     Availability, AvailabilityCreate, Session, SessionCreate, Trainer, TrainerCreate,
     TrainerStatusUpdate,
@@ -124,8 +126,10 @@ def create_app(database_url=None, redis_client=None, eureka_client=None) -> Fast
         return repo(request).get_session(session_id)
 
     @app.post("/sessions", response_model=Session, status_code=201)
-    def create_session(payload: SessionCreate, request: Request):
-        return repo(request).create_session(payload)
+    async def create_session(payload: SessionCreate, request: Request):
+        # 1. karnet w Membership Service (Eureka, nazwa logiczna), 2. reguły lokalne i zapis w transakcji.
+        await ensure_membership_allows_session(request.app.state.eureka_client, payload)
+        return await run_in_threadpool(repo(request).create_session, payload)
 
     @app.patch("/sessions/{session_id}/cancel", response_model=Session)
     def cancel_session(session_id: str, request: Request):
