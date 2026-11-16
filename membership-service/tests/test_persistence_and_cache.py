@@ -99,3 +99,19 @@ def test_rejected_suspend_rolls_back_and_keeps_database_state(client):
     r = client.patch("/memberships/M-002/suspend", json={"days": 5})
     assert r.status_code == 409
     assert client.app.state.repository.get("M-002") == before
+
+
+def test_only_unique_violation_is_mapped_to_conflict(client):
+    from datetime import date
+
+    import pytest
+    from sqlalchemy.exc import IntegrityError
+
+    from app.models import MembershipCreate
+
+    payload = MembershipCreate.model_construct(
+        member_id="U-900", type="vip", valid_from=date(2026, 1, 1), valid_to=date(2026, 2, 1)
+    )
+    with pytest.raises(IntegrityError):
+        client.app.state.repository.create(payload)
+    assert len(client.get("/memberships").json()) == 2

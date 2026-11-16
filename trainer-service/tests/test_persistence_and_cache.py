@@ -1,4 +1,5 @@
 from fastapi.testclient import TestClient
+from redis.exceptions import ConnectionError
 
 from app.main import create_app
 from tests.conftest import CACHE_PREFIX, MemoryRedis
@@ -80,6 +81,19 @@ def test_redis_outage_does_not_block_read_or_write(client, fake_redis):
     assert after.headers["X-Cache"] == "MISS"
     assert after.json()["status"] == "active"
     assert len(client.get("/sessions").json()) == 2
+
+
+def test_cache_set_failure_returns_database_value_as_bypass(client, fake_redis, monkeypatch):
+    def broken_set(key, value, ex):
+        raise ConnectionError("SET failed")
+
+    monkeypatch.setattr(fake_redis, "set", broken_set)
+
+    r = client.get("/trainers/T-001")
+    assert r.status_code == 200
+    assert r.headers["X-Cache"] == "BYPASS"
+    assert r.json()["name"] == "Anna Nowak"
+    assert T001_KEY not in fake_redis.values
 
 
 def test_failed_invalidation_can_leave_stale_value(client, fake_redis):

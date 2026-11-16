@@ -33,7 +33,6 @@ class MembershipRepository:
         self.sessions = sessions
 
     def seed(self):
-        # Only fills an empty table, so a restart never overwrites saved changes.
         with self.sessions.begin() as db:
             if db.scalar(select(func.count()).select_from(MembershipRow)) == 0:
                 db.add_all([MembershipRow(**data) for data in SEED_DATA])
@@ -68,7 +67,9 @@ class MembershipRepository:
                 result = Membership.model_validate(row)
             return result
         except IntegrityError as exc:
-            raise MembershipConflict("Membership with this id already exists") from exc
+            if "UNIQUE constraint failed" in str(exc.orig):
+                raise MembershipConflict("Membership with this id already exists") from exc
+            raise
 
     def suspend(self, membership_id: str, days: int) -> Membership:
         with self.sessions.begin() as db:
