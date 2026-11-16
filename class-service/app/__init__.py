@@ -1,0 +1,1 @@
+"""Class Service — zajęcia grupowe, terminy i limity miejsc."""
