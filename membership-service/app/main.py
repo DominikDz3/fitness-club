@@ -6,15 +6,16 @@ from fastapi import FastAPI, HTTPException, Request, Response
 from app import db_models  # noqa: F401  rejestruje tabele w Base.metadata
 from app.cache import JsonCache, make_redis
 from app.database import Base, make_database
+from app.eureka import create_eureka_client
 from app.models import Membership, MembershipCreate, SuspendRequest
 from app.repository import MembershipConflict, MembershipNotFound, MembershipRepository
 
 SERVICE_NAME = "membership-service"
 
 
-def create_app(database_url=None, redis_client=None) -> FastAPI:
+def create_app(database_url=None, redis_client=None, eureka_client=None) -> FastAPI:
     @asynccontextmanager
-    async def lifespan(app):
+    async def storage_lifespan(app):
         engine, sessions = make_database(
             database_url or os.getenv("DATABASE_URL", "sqlite:///./app.db")
         )
@@ -42,6 +43,19 @@ def create_app(database_url=None, redis_client=None) -> FastAPI:
                     client.close()
             finally:
                 engine.dispose()
+
+    eureka = eureka_client if eureka_client is not None else create_eureka_client("MEMBERSHIP-SERVICE", 8101)
+
+    @asynccontextmanager
+    async def lifespan(app):
+        # Kolejność: baza i Redis -> rejestracja w Eurece -> obsługa żądań -> wyrejestrowanie -> zamknięcie bazy i Redis.
+        async with storage_lifespan(app):
+            app.state.eureka_client = eureka
+            await eureka.start()
+            try:
+                yield
+            finally:
+                await eureka.stop()
 
     app = FastAPI(title="Membership Service", lifespan=lifespan)
 

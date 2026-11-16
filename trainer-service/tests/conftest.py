@@ -40,6 +40,25 @@ class MemoryRedis:
         pass
 
 
+class FakeEurekaClient:
+    """Zamiennik klienta Eureki: nie łączy się z rejestrem, liczy start() i stop()."""
+
+    def __init__(self):
+        self.starts = 0
+        self.stops = 0
+
+    async def start(self):
+        self.starts += 1
+
+    async def stop(self):
+        self.stops += 1
+
+
+@pytest.fixture
+def fake_eureka():
+    return FakeEurekaClient()
+
+
 @pytest.fixture(autouse=True)
 def cache_env(monkeypatch):
     monkeypatch.setenv("CACHE_PREFIX", CACHE_PREFIX)
@@ -57,7 +76,7 @@ def fake_redis():
 
 
 @pytest.fixture
-def client(db_url, fake_redis):
-    app = create_app(database_url=db_url, redis_client=fake_redis)
+def client(db_url, fake_redis, fake_eureka):
+    app = create_app(database_url=db_url, redis_client=fake_redis, eureka_client=fake_eureka)
     with TestClient(app) as test_client:
         yield test_client

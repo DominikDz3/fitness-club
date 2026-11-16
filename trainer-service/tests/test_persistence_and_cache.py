@@ -2,7 +2,7 @@ from fastapi.testclient import TestClient
 from redis.exceptions import ConnectionError
 
 from app.main import create_app
-from tests.conftest import CACHE_PREFIX, MemoryRedis
+from tests.conftest import CACHE_PREFIX, FakeEurekaClient, MemoryRedis
 
 T001_KEY = f"{CACHE_PREFIX}:trainer:T-001"
 SESSION = {"trainer_id": "T-001", "membership_id": "M-002",
@@ -10,13 +10,13 @@ SESSION = {"trainer_id": "T-001", "membership_id": "M-002",
 
 
 def test_changes_survive_new_app_instance(db_url):
-    with TestClient(create_app(database_url=db_url, redis_client=MemoryRedis())) as first:
+    with TestClient(create_app(database_url=db_url, redis_client=MemoryRedis(), eureka_client=FakeEurekaClient())) as first:
         assert first.post("/trainers", json={"name": "Ewa Zielinska",
                                              "specialization": "pilates"}).status_code == 201
         assert first.post("/sessions", json=SESSION).status_code == 201
         assert first.patch("/trainers/T-002/status", json={"status": "active"}).status_code == 200
 
-    with TestClient(create_app(database_url=db_url, redis_client=MemoryRedis())) as second:
+    with TestClient(create_app(database_url=db_url, redis_client=MemoryRedis(), eureka_client=FakeEurekaClient())) as second:
         r = second.get("/trainers/T-003")
         assert r.status_code == 200
         assert r.headers["X-Cache"] == "MISS"

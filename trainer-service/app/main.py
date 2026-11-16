@@ -7,6 +7,7 @@ from fastapi.responses import JSONResponse
 from app import db_models  # noqa: F401  rejestruje tabele w Base.metadata
 from app.cache import JsonCache, make_redis
 from app.database import Base, make_database
+from app.eureka import create_eureka_client
 from app.models import (
     Availability, AvailabilityCreate, Session, SessionCreate, Trainer, TrainerCreate,
     TrainerStatusUpdate,
@@ -16,9 +17,9 @@ from app.repository import Conflict, NotFound, TrainerRepository
 SERVICE_NAME = "trainer-service"
 
 
-def create_app(database_url=None, redis_client=None) -> FastAPI:
+def create_app(database_url=None, redis_client=None, eureka_client=None) -> FastAPI:
     @asynccontextmanager
-    async def lifespan(app):
+    async def storage_lifespan(app):
         engine, sessions = make_database(
             database_url or os.getenv("DATABASE_URL", "sqlite:///./trainer.db")
         )
@@ -46,6 +47,19 @@ def create_app(database_url=None, redis_client=None) -> FastAPI:
                     client.close()
             finally:
                 engine.dispose()
+
+    eureka = eureka_client if eureka_client is not None else create_eureka_client("TRAINER-SERVICE", 8102)
+
+    @asynccontextmanager
+    async def lifespan(app):
+        # baza i Redis -> rejestracja w Eurece -> obsługa żądań -> wyrejestrowanie -> zamknięcie bazy i Redis.
+        async with storage_lifespan(app):
+            app.state.eureka_client = eureka
+            await eureka.start()
+            try:
+                yield
+            finally:
+                await eureka.stop()
 
     app = FastAPI(title="Trainer Service", lifespan=lifespan)
 
