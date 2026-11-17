@@ -1,6 +1,6 @@
-# Class Service — LAB1 i LAB2
+# Class Service — LAB1, LAB2 i LAB3
 
-Trzecia usługa w systemie zarządzania klubem fitness. Obsługuje zajęcia grupowe: termin, prowadzącego trenera, limit miejsc i status zajęć. Dane są zapisywane w SQLite, a odczyt pojedynczych zajęć korzysta z cache Redis.
+Trzecia usługa w systemie zarządzania klubem fitness. Obsługuje zajęcia grupowe: termin, prowadzącego trenera, limit miejsc i status zajęć. Dane są zapisywane w SQLite, a odczyt pojedynczych zajęć korzysta z cache Redis. Od LAB3 usługa rejestruje się w Eurece jako `CLASS-SERVICE` i przy tworzeniu zajęć sprawdza trenera w Trainer Service (sekcja „Etap LAB3” na końcu pliku oraz główny [README](../README.md)).
 
 ## Uruchomienie i testy
 
@@ -61,7 +61,7 @@ Tabelę `group_classes` zapisuje wyłącznie Class Service. Zajęcia tworzy i od
 - Class Service zwraca 404 -> Booking Service zwraca 404 „Class not found”,
 - inny błąd HTTP Class Service -> 502, brak połączenia lub timeout 3 s -> 503. W obu przypadkach zapis nie powstaje.
 
-Na LAB2 Class Service sprawdza tylko format `trainer_id` (`T-` i co najmniej trzy cyfry).
+Na LAB2 Class Service sprawdzał tylko format `trainer_id` (`T-` i co najmniej trzy cyfry). Od LAB3 sprawdza też w Trainer Service, czy trener istnieje i jest aktywny (sekcja „Etap LAB3”).
 
 ## 2. Model i reguła biznesowa
 
@@ -95,7 +95,7 @@ Wszystkie warunki są sprawdzane w jednej transakcji przed zapisem; wyjątek pow
 | GET    | `/health`                    | Status i nazwa usługi                         | 200              | -        |
 | GET    | `/classes`                   | Lista zajęć                                   | 200 (także `[]`) | -        |
 | GET    | `/classes/{class_id}`        | Szczegóły zajęć (cache, nagłówek `X-Cache`)   | 200              | 404      |
-| POST   | `/classes`                   | Utworzenie zajęć                              | 201              | 409, 422 |
+| POST   | `/classes`                   | Utworzenie zajęć                              | 201              | 409, 422; od LAB3 także 404, 502, 503 |
 | PATCH  | `/classes/{class_id}/cancel` | Odwołanie zajęć                               | 200              | 404, 409 |
 | PATCH  | `/classes/{class_id}/finish` | Oznaczenie zajęć jako zakończone              | 200              | 404, 409 |
 
@@ -152,7 +152,8 @@ Błędy:
 - 201 - utworzono nowe zajęcia z nowym `id`, 200 - odczyt lub zmiana istniejących,
 - 404 - brak zajęć o `id` z adresu,
 - 422 - dane same w sobie są złe: brak pola, pusta nazwa, zły format `trainer_id`, limit spoza 1–50, koniec przed początkiem, czas spoza 30–120 min, data ze strefą czasową; wynik nie zależy od stanu bazy,
-- 409 - dane są poprawne, ale kolidują z aktualnym stanem: trener ma już zajęcia w tym czasie, zajęcia są już odwołane lub zakończone.
+- 409 - dane są poprawne, ale kolidują z aktualnym stanem: trener ma już zajęcia w tym czasie, zajęcia są już odwołane lub zakończone; od LAB3 także trener nieaktywny w Trainer Service,
+- od LAB3 w `POST /classes`: 404 - trener nie istnieje w Trainer Service, 502 - Trainer Service zwrócił błąd HTTP lub niepoprawną odpowiedź, 503 - Trainer Service niedostępny (sekcja „Etap LAB3”).
 
 ## 4. Testy i stan danych
 
@@ -169,7 +170,7 @@ Testy: `test_health.py` (1), `test_classes.py` (12), `test_persistence_and_cache
 | Reguła biznesowa: dozwolona i niedozwolona operacja | dane początkowe; `PATCH /classes/C-001/cancel`; `PATCH /classes/C-002/finish`; `PATCH /classes/C-002/cancel`         | 200 `cancelled`; 409 dla C-002 i zajęcia bez zmian                  | zgodny - `test_cancel_scheduled_class`, `test_cancelled_class_cannot_be_finished_or_cancelled_again`                 | nowa aplikacja z fixture |
 | Restart                                             | Uvicorn na 8103; `POST /classes` (C-003), `PATCH C-001/cancel`, `PATCH C-003/finish`, `Ctrl+C`, ponowny start, `GET /classes` | po restarcie nadal 3 zajęcia ze zmienionymi statusami       | zgodny - dane z `class.db` (szczegóły w części LAB2, „Dowody”)                                                       | usunięcie `class.db`     |
 
-Wynik testów (`.\.venv\Scripts\python.exe -m pytest -q`): `21 passed`.
+Wynik testów (`.\.venv\Scripts\python.exe -m pytest -q`): `21 passed` na etapie LAB2; od LAB3 `31 passed` (sekcja „Etap LAB3”).
 
 ## 5. Porównanie architektur
 
@@ -235,7 +236,7 @@ API Gateway
 ## 7. Ograniczenia, autorzy i AI
 
 Ograniczenia:
-- w LAB2 usługa nie sprawdza, czy trener `trainer_id` istnieje i jest aktywny — to wymaga wywołania Trainer Service (LAB3),
+- (stan LAB2) usługa nie sprawdzała, czy trener `trainer_id` istnieje i jest aktywny — od LAB3 sprawdza to w Trainer Service (sekcja „Etap LAB3”),
 - kolizja jest sprawdzana tylko między zajęciami grupowymi; usługa nie widzi treningów personalnych ani bloków dostępności trenera w Trainer Service,
 - liczby zapisanych osób nie ma w tej usłudze — należy do Booking Service,
 - status `finished` jest ustawiany ręcznie; usługa nie sprawdza, czy termin zajęć już minął,
@@ -311,7 +312,7 @@ Ręczne próby z rzeczywistym Redis. Środowisko: Redis 7 w Dockerze (`lab2-redi
 | Awaria GET, SET, DELETE cache | `POST /classes` (Joga, 2026-11-21 09:00–10:00) -> 201 `C-003`; `docker stop lab2-redis`; `GET /classes/C-003`; `PATCH /classes/C-003/finish`; `docker start lab2-redis`; GET | GET -> 200 `BYPASS`; PATCH zapisany mimo nieudanego `DEL`; po powrocie Redis GET -> MISS, `finished`; brak błędu 500 | zgodny: 201 `C-003`; GET 200 `BYPASS` (`scheduled`, log `Cache unavailable; reading database`); PATCH 200 (log `Invalidation failed; old value may survive until TTL`); po `docker start` GET -> 200 MISS, `finished`. Awarii samego `SET` (przy działającym `GET`) nie da się wywołać ręcznie odłączeniem Redis — sprawdza ją test `test_cache_set_failure_returns_database_value_as_bypass` | `docker start lab2-redis` |
 | Przywrócenie Redis, możliwa stara wartość | `POST /classes` (Zumba, T-002, 2026-11-22 10:00–11:00) -> `C-004`; restart z TTL 300: GET (MISS, `scheduled` w cache), `TTL $key4`; restart z `REDIS_URL=redis://127.0.0.1:9999/0`: GET, `PATCH /classes/C-004/cancel`; restart z poprawnym `REDIS_URL`: GET, `TTL $key4`, `DEL $key4`, GET | GET przy odłączeniu -> `BYPASS`; PATCH -> 200 (`cancelled` w bazie, `DEL` nieudany); po przywróceniu HIT ze starym `scheduled`; po `DEL` -> MISS z `cancelled` | zgodny: GET 200 MISS `scheduled`, TTL = 268; przy odłączeniu GET 200 `BYPASS` (log `Cache unavailable; reading database`); PATCH 200 `cancelled` (log `Invalidation failed; old value may survive until TTL`); po przywróceniu GET -> 200 **HIT, `scheduled`** (stara wartość, w bazie `cancelled`), TTL = 206; `DEL` = 1; GET -> 200 MISS, `cancelled` | `redis-cli DEL $key4`, przywrócenie `REDIS_URL` i `CACHE_TTL_SECONDS=60` |
 
-**Testy automatyczne (zamiennik `MemoryRedis`, baza w `tmp_path`, bez Dockera)** — wynik `.\.venv\Scripts\python.exe -m pytest -q`: `21 passed`.
+**Testy automatyczne (zamiennik `MemoryRedis`, baza w `tmp_path`, bez Dockera)** — wynik `.\.venv\Scripts\python.exe -m pytest -q`: `21 passed` (stan LAB2; od LAB3 `31 passed`).
 
 Własne testy LAB2 (`tests/test_persistence_and_cache.py`):
 
@@ -351,7 +352,7 @@ Ograniczenia:
 - **Współbieżność:** reguła kolizji (sprawdzenie -> zapis) i nadawanie kolejnego `id` nie są chronione przed dwoma równoczesnymi żądaniami; prosty cache-aside może też zapisać do cache wartość sprzed równoległej zmiany.
 - **Zmiany schematu:** `create_all` tworzy brakujące tabele, ale nie zmienia istniejących kolumn; zmiana modelu wymaga usunięcia `class.db` albo migracji.
 - **Czy cache jest właściwy dla odbiorcy:** tak dla podglądu zajęć (rzadkie zmiany, akceptowalne krótkie opóźnienie). Nie dla decyzji o zapisie — Booking Service powinien sprawdzać zajęcia w momencie zapisu.
-- Usługa jeszcze nie sprawdza trenera `trainer_id` w Trainer Service (LAB3).
+- W LAB2 usługa nie sprawdzała trenera `trainer_id` w Trainer Service — dodano w LAB3.
 
 ## Dokumentacja i autorzy
 
@@ -363,3 +364,62 @@ Ograniczenia:
 - **Wkład każdej osoby:** Julia — Class Service: projekt domeny, model, baza, cache, reguły, testy, ręczne scenariusze z Redis i README. `app/database.py` i `app/cache.py` pochodzą z paczki pomocniczej LAB2, jak w pozostałych usługach projektu.
 - **AI:** Claude (Anthropic) — propozycja endpointów, szkic testów i uzupełnienie README. Weryfikacja: `pytest -q` (`21 passed`), ręczne sprawdzenie endpointów i kodów 404/409/422 w `/docs`, scenariusze z rzeczywistym Redis z tabeli „Dowody”, przeczytanie i omówienie kodu.
 - **Kolejny etap pierwszej i planowanej drugiej usługi:** Booking Service (port 8104) — zapisy członków na zajęcia i lista rezerwowa. W LAB3 rejestracja w Eurece jako `CLASS-SERVICE`; Booking Service przy zapisie odnajdzie `CLASS-SERVICE` po nazwie logicznej i pobierze zajęcia (`GET /classes/{id}`), mapując 404 -> 404, zajęcia nie `scheduled` -> 409, inne błędy HTTP -> 502, brak połączenia lub timeout -> 503.
+
+# Etap LAB3 — rejestracja w Eurece i wywołanie Trainer Service
+
+Wspólna dokumentacja LAB3 całego systemu (wszystkie usługi, uruchomienie z Eureką, oba kontrakty, wyniki scenariuszy ręcznych, ograniczenia, źródła) jest w głównym [README](../README.md). Poniżej tylko zmiany w tej usłudze.
+
+## Zmiany w Class Service
+
+- **Rejestracja:** usługa rejestruje się w Eurece jako `CLASS-SERVICE` na porcie 8103 (`app/eureka.py`, zmienne `EUREKA_SERVER_URL`, `SERVICE_NAME`, `SERVICE_PORT`, `INSTANCE_IP`, `INSTANCE_HOST`).
+- **Cykl życia:** `create_app(database_url=None, redis_client=None, eureka_client=None)`. Dotychczasowy `lifespan` z LAB2 nazywa się `storage_lifespan`; nowy `lifespan`: baza i Redis -> `eureka_client.start()` -> obsługa żądań -> `eureka_client.stop()` -> zamknięcie Redis i bazy.
+- **Wywołanie Trainer Service:** `POST /classes` po walidacji Pydantic, a przed regułą kolizji i zapisem, pobiera `GET /trainers/{trainer_id}` z usługi `TRAINER-SERVICE` odnalezionej po nazwie logicznej (`app/trainer_client.py`, `do_service`, timeout 3 s). Endpoint jest `async def`, a zapis SQLAlchemy wykonuje się przez `run_in_threadpool`.
+
+| Sytuacja | Odpowiedź `POST /classes` |
+|---|---|
+| trener `active` | reguła kolizji, potem 201 |
+| trener w innym statusie | 409 `Trainer is not active (status '...')` |
+| Trainer Service zwraca 404 | 404 `Trainer not found` |
+| inny błąd HTTP lub odpowiedź bez `id`/`status` | 502 `Trainer Service returned an HTTP error` / `Trainer Service returned an invalid response` |
+| brak instancji, brak połączenia, timeout | 503 `Trainer Service is unavailable` |
+
+Przy każdym błędzie zależności zajęcia nie są zapisywane. Pozostałe endpointy, baza i cache z LAB2 bez zmian.
+
+## Uruchomienie z Eureką
+
+```powershell
+$env:EUREKA_SERVER_URL = 'http://127.0.0.1:8761'
+$env:SERVICE_NAME = 'CLASS-SERVICE'
+$env:SERVICE_PORT = '8103'
+$env:CACHE_PREFIX = 'lab2:album123456:class-service'
+.\.venv\Scripts\python.exe -m uvicorn app.main:app --port 8103
+```
+
+`SERVICE_PORT` musi być równy `--port`. Usługę uruchamiamy we własnym terminalu. Bez działającej Eureki usługa też startuje (w logu ostrzeżenia klienta), ale `POST /classes` zwraca 503, dopóki nie odnajdzie `TRAINER-SERVICE`.
+
+## Testy LAB3
+
+Wynik `.\.venv\Scripts\python.exe -m pytest -q`: `31 passed` (21 testów LAB1–LAB2 + 10 testów LAB3). Testy nie łączą się z Eureką — `tests/conftest.py` wstrzykuje atrapę `FakeEurekaClient` (`start`, `stop`, `do_service` z danymi trenerów T-001 `active` i T-002 `inactive`).
+
+| Test | Co wykazuje |
+|---|---|
+| `test_eureka_lifecycle.py::test_eureka_client_starts_and_stops_with_the_app` | klient Eureki startuje i zatrzymuje się razem z aplikacją (`starts == stops == 1`) |
+| `test_class_checks_trainer_by_logical_name` | 201; wywołanie `("TRAINER-SERVICE", "/trainers/T-001", "json", 3)` |
+| `test_unknown_trainer_returns_404_and_no_class` | 404 `Trainer not found`, brak nowych zajęć |
+| `test_inactive_trainer_returns_409_and_no_class` | 409 dla T-002, brak nowych zajęć |
+| `test_trainer_service_unavailable_returns_503` (`URLError`, `TimeoutError`) | 503, `/health` nadal 200, brak nowych zajęć |
+| `test_trainer_service_http_error_returns_502` | błąd 500 zależności -> 502 |
+| `test_invalid_trainer_response_returns_502` | odpowiedź bez wymaganych pól -> 502 |
+| `test_invalid_trainer_id_is_rejected_without_calling_trainer_service` | 422 bez wywołania Trainer Service |
+| `test_active_trainer_does_not_bypass_local_overlap_rule` | aktywny trener, ale kolizja z C-001 -> 409 reguły lokalnej |
+
+Test `test_overlap_with_cancelled_class_or_other_trainer_is_allowed` z LAB1 używa teraz aktywnego trenera T-003 dodanego w atrapie (T-002 jest nieaktywny w Trainer Service).
+
+Wyniki ręcznych scenariuszy z prawdziwą Eureką i Trainer Service (rejestracja, 201, 404, 409, 503 przy zatrzymanym Trainer Service, powrót do 201 po ok. 45 s, działanie przy zatrzymanej Eurece) — tabela „Przepływ Class → Trainer” w głównym [README](../README.md).
+
+## Ograniczenia LAB3
+
+- sprawdzenie trenera i zapis zajęć nie są atomowe — trener może zostać zdezaktywowany między odpowiedzią Trainer Service a zapisem zajęć,
+- `GET /trainers/{id}` w Trainer Service jest objęty cache Redis; po nieudanym unieważnieniu Class Service może przez TTL (60 s) dostać stary status trenera,
+- po ponownym uruchomieniu Trainer Service pierwsze żądania mogą jeszcze dawać 503, dopóki Class Service nie odświeży kopii rejestru,
+- jedna próba wywołania z timeoutem 3 s, bez ponowień i circuit breakera (zgodnie z zakresem LAB3).
