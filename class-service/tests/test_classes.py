@@ -57,13 +57,15 @@ def test_overlapping_class_of_same_trainer_returns_409_and_keeps_store(client):
     assert len(client.get("/classes").json()) == 2
 
 
-def test_overlap_with_cancelled_class_or_other_trainer_is_allowed(client):
-    # C-002 (T-001, 2026-11-18 17:00–18:00) jest odwołane, więc nie blokuje terminu.
+def test_overlap_with_cancelled_class_or_other_trainer_is_allowed(client, fake_eureka):
     same_time_as_cancelled = {**NEW_CLASS, "starts_at": "2026-11-18T17:00:00",
                               "ends_at": "2026-11-18T18:00:00"}
     assert client.post("/classes", json=same_time_as_cancelled).status_code == 201
 
-    other_trainer = {**NEW_CLASS, "trainer_id": "T-002", "starts_at": "2026-11-20T18:00:00",
+    fake_eureka.trainers = {**fake_eureka.trainers,
+                            "T-003": {"id": "T-003", "name": "Ewa Zielinska",
+                                      "specialization": "pilates", "status": "active"}}
+    other_trainer = {**NEW_CLASS, "trainer_id": "T-003", "starts_at": "2026-11-20T18:00:00",
                      "ends_at": "2026-11-20T19:00:00"}
     assert client.post("/classes", json=other_trainer).status_code == 201
 

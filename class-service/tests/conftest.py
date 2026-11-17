@@ -1,8 +1,10 @@
 import pytest
+from urllib.error import HTTPError
 from fastapi.testclient import TestClient
 from redis.exceptions import ConnectionError
 
 from app.main import create_app
+
 
 CACHE_PREFIX = "lab2:test:class-service"
 
@@ -40,10 +42,19 @@ class MemoryRedis:
         pass
 
 
-class FakeEurekaClient:
-    #Zamiennik klienta Eureki: nie łączy się z rejestrem, liczy start() i stop()
+TRAINERS = {
+    "T-001": {"id": "T-001", "name": "Anna Nowak", "specialization": "strength", "status": "active"},
+    "T-002": {"id": "T-002", "name": "Piotr Kowalski", "specialization": "yoga", "status": "inactive"},
+}
 
-    def __init__(self):
+
+class FakeEurekaClient:
+
+    def __init__(self, trainers=None, error=None, response=None):
+        self.trainers = TRAINERS if trainers is None else trainers
+        self.error = error
+        self.response = response
+        self.calls = []
         self.starts = 0
         self.stops = 0
 
@@ -52,6 +63,17 @@ class FakeEurekaClient:
 
     async def stop(self):
         self.stops += 1
+
+    async def do_service(self, app_name, service, return_type=None, timeout=None):
+        self.calls.append((app_name, service, return_type, timeout))
+        if self.error is not None:
+            raise self.error
+        if self.response is not None:
+            return self.response
+        trainer_id = service.rsplit("/", 1)[-1]
+        if app_name == "TRAINER-SERVICE" and trainer_id in self.trainers:
+            return dict(self.trainers[trainer_id])
+        raise HTTPError(f"http://trainer{service}", 404, "Not Found", {}, None)
 
 
 @pytest.fixture

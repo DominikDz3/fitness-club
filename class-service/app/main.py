@@ -3,13 +3,15 @@ from contextlib import asynccontextmanager
 
 from fastapi import FastAPI, Request, Response
 from fastapi.responses import JSONResponse
+from fastapi.concurrency import run_in_threadpool
 
-from app import db_models  # noqa: F401  rejestruje tabele w Base.metadata
+from app import db_models
 from app.cache import JsonCache, make_redis
 from app.database import Base, make_database
 from app.eureka import create_eureka_client
 from app.models import GroupClass, GroupClassCreate
 from app.repository import ClassRepository, Conflict, NotFound
+from app.trainer_client import ensure_trainer_can_lead_class
 
 SERVICE_NAME = "class-service"
 
@@ -94,8 +96,9 @@ def create_app(database_url=None, redis_client=None, eureka_client=None) -> Fast
         return payload
 
     @app.post("/classes", response_model=GroupClass, status_code=201)
-    def create_class(payload: GroupClassCreate, request: Request):
-        return repo(request).create_class(payload)
+    async def create_class(payload: GroupClassCreate, request: Request):
+        await ensure_trainer_can_lead_class(request.app.state.eureka_client, payload.trainer_id)
+        return await run_in_threadpool(repo(request).create_class, payload)
 
     @app.patch("/classes/{class_id}/cancel", response_model=GroupClass)
     def cancel_class(class_id: str, request: Request):
