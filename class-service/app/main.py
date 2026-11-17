@@ -7,15 +7,16 @@ from fastapi.responses import JSONResponse
 from app import db_models  # noqa: F401  rejestruje tabele w Base.metadata
 from app.cache import JsonCache, make_redis
 from app.database import Base, make_database
+from app.eureka import create_eureka_client
 from app.models import GroupClass, GroupClassCreate
 from app.repository import ClassRepository, Conflict, NotFound
 
 SERVICE_NAME = "class-service"
 
 
-def create_app(database_url=None, redis_client=None) -> FastAPI:
+def create_app(database_url=None, redis_client=None, eureka_client=None) -> FastAPI:
     @asynccontextmanager
-    async def lifespan(app):
+    async def storage_lifespan(app):
         engine, sessions = make_database(
             database_url or os.getenv("DATABASE_URL", "sqlite:///./class.db")
         )
@@ -43,6 +44,19 @@ def create_app(database_url=None, redis_client=None) -> FastAPI:
                     client.close()
             finally:
                 engine.dispose()
+
+    eureka = eureka_client if eureka_client is not None else create_eureka_client("CLASS-SERVICE", 8103)
+
+    @asynccontextmanager
+    async def lifespan(app):
+        async with storage_lifespan(app):
+            app.state.eureka_client = eureka
+            await eureka.start()
+            try:
+                yield
+            finally:
+                await eureka.stop()
+
 
     app = FastAPI(title="Class Service", lifespan=lifespan)
 
