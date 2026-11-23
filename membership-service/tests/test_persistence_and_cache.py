@@ -1,7 +1,7 @@
 from fastapi.testclient import TestClient
 
 from app.main import create_app
-from tests.conftest import CACHE_PREFIX, MemoryRedis
+from tests.conftest import CACHE_PREFIX, FakeEurekaClient, MemoryRedis
 
 M001_KEY = f"{CACHE_PREFIX}:membership:M-001"
 
@@ -9,11 +9,11 @@ M001_KEY = f"{CACHE_PREFIX}:membership:M-001"
 def test_changes_survive_new_app_instance(db_url):
     body = {"member_id": "U-300", "type": "gym_only",
             "valid_from": "2026-11-01", "valid_to": "2027-01-31"}
-    with TestClient(create_app(database_url=db_url, redis_client=MemoryRedis())) as first:
+    with TestClient(create_app(database_url=db_url, redis_client=MemoryRedis(), eureka_client=FakeEurekaClient())) as first:
         assert first.post("/memberships", json=body).status_code == 201
         assert first.patch("/memberships/M-001/suspend", json={"days": 14}).status_code == 200
 
-    with TestClient(create_app(database_url=db_url, redis_client=MemoryRedis())) as second:
+    with TestClient(create_app(database_url=db_url, redis_client=MemoryRedis(), eureka_client=FakeEurekaClient())) as second:
         r = second.get("/memberships/M-003")
         assert r.status_code == 200
         assert r.headers["X-Cache"] == "MISS"
@@ -83,7 +83,7 @@ def test_redis_outage_does_not_block_read_or_write(client, fake_redis):
 
 
 def test_failed_invalidation_can_leave_stale_value(client, fake_redis):
-    client.get("/memberships/M-001")  
+    client.get("/memberships/M-001")
     fake_redis.down = True
     assert client.patch("/memberships/M-001/suspend", json={"days": 14}).status_code == 200
     fake_redis.down = False
@@ -99,3 +99,19 @@ def test_rejected_suspend_rolls_back_and_keeps_database_state(client):
     r = client.patch("/memberships/M-002/suspend", json={"days": 5})
     assert r.status_code == 409
     assert client.app.state.repository.get("M-002") == before
+
+
+def test_only_unique_violation_is_mapped_to_conflict(client):
+    from datetime import date
+
+    import pytest
+    from sqlalchemy.exc import IntegrityError
+
+    from app.models import MembershipCreate
+
+    payload = MembershipCreate.model_construct(
+        member_id="U-900", type="vip", valid_from=date(2026, 1, 1), valid_to=date(2026, 2, 1)
+    )
+    with pytest.raises(IntegrityError):
+        client.app.state.repository.create(payload)
+    assert len(client.get("/memberships").json()) == 2

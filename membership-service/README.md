@@ -29,12 +29,12 @@ $env:CACHE_TTL_SECONDS = '60'
 .\.venv\Scripts\python.exe -m uvicorn app.main:app --reload --port 8101
 ```
 
-| Zmienna | Domyślnie | Znaczenie |
-|---|---|---|
-| `DATABASE_URL` | `sqlite:///./app.db` | adres bazy; plik `app.db` powstaje w katalogu uruchomienia |
-| `REDIS_URL` | `redis://localhost:6379/0` | adres Redis |
-| `CACHE_PREFIX` | `lab2:fitness-club:membership-service` | prefiks kluczy w Redis |
-| `CACHE_TTL_SECONDS` | `60` | czas życia wpisu w cache |
+| Zmienna             | Domyślnie                              | Znaczenie                                                  |
+|---------------------|----------------------------------------|------------------------------------------------------------|
+| `DATABASE_URL`      | `sqlite:///./app.db`                   | adres bazy; plik `app.db` powstaje w katalogu uruchomienia |
+| `REDIS_URL`         | `redis://localhost:6379/0`             | adres Redis                                                |
+| `CACHE_PREFIX`      | `lab2:fitness-club:membership-service` | prefiks kluczy w Redis                                     |
+| `CACHE_TTL_SECONDS` | `60`                                   | czas życia wpisu w cache                                   |
 
 Schemat bazy tworzy `Base.metadata.create_all()` przy starcie aplikacji; dane początkowe (M-001, M-002) są wstawiane tylko do pustej tabeli. Reset danych: zatrzymaj serwer i usuń `app.db`. Zmienne środowiskowe obowiązują w bieżącym terminalu; po ich zmianie trzeba zatrzymać Uvicorna (`Ctrl+C`) i uruchomić go ponownie (`--reload` tego nie zapewnia).
 
@@ -66,10 +66,10 @@ Członek klubu (sprawdza karnet, zawiesza go), recepcja (zakłada, zawiesza i wz
 - **Zawieszenie** - czasowe wstrzymanie karnetu na 1–30 dni. Przesuwa valid_to o liczbę dni zawieszenia
 - **Aktualny karnet** - karnet w statusie active lub suspended; członek może mieć tylko jeden
 
-| Planowana usługa                   | Odpowiedzialność | Własne dane | Operacje | Potrzebne informacje od innej usługi     |
-|------------------------------------|---|---|---|------------------------------------------|
-| Pierwsza — implementowana teraz - Membership Service (port 8101) | karnety członków i ich ważność | karnety: member_id, typ, okres ważności, status, data końca zawieszenia| lista, szczegóły, założenie karnetu, zawieszenie, wznowienie| czy członek o danym ```member_id``` istnieje |
-|Druga — implementowana później: **Trainer Service** | trenerzy i ich dostępność | trenerzy, specjalizacje, bloki dostępności | dodanie trenera, dodanie i usunięcie bloku dostępności, odczyt grafiku trenera | brak — jest źródłem danych dla Class Service |
+| Planowana usługa                                                 | Odpowiedzialność               | Własne dane                                                             | Operacje                                                                                               | Potrzebne informacje od innej usługi         |
+|------------------------------------------------------------------|--------------------------------|-------------------------------------------------------------------------|--------------------------------------------------------------------------------------------------------|----------------------------------------------|
+| Pierwsza — implementowana teraz - Membership Service (port 8101) | karnety członków i ich ważność | karnety: member_id, typ, okres ważności, status, data końca zawieszenia | lista, szczegóły, założenie karnetu, zawieszenie, wznowienie                                           | czy członek o danym ```member_id``` istnieje |
+| Druga — implementowana później: **Trainer Service**              | trenerzy i ich dostępność      | trenerzy, sesje treningu personalnego, bloki dostępności                | dodanie trenera, dodanie i usunięcie bloku dostępności, zmiana statusu, umówienie i odwołanie treningu | brak — jest źródłem danych dla Class Service |
 
 ### 1.6. Granice i właściciele danych
 Karnety zapisuje wyłącznie Membership Service (zmiany zleca recepcja, zawieszenie także członek). Dostępność trenera zapisuje wyłącznie Trainer Service (zmienia ją trener). Pozostałe usługi systemu realizuje druga osoba w parze: Class Service (zajęcia, limity miejsc) i Booking Service (zapisy, lista rezerwowa). Podział wynika z odpowiedzialności biznesowej, a nie z tabel. Membership odpowiada na pytanie czy członek ma prawo korzystać z klubu, a Booking czy ma miejsce na konkretnych zajęciach. To różne reguły, zmieniane przez różne osoby i z różną częstotliwością.
@@ -93,7 +93,7 @@ Model `Membership`:
 - `status` - nadaje serwer: `active`, `suspended` albo `expired`; nowy karnet ma `active`,
 - `suspended_until` - data końca zawieszenia albo `null`.
 
-Dane początkowe (tworzone przy każdym starcie):
+Dane początkowe (tworzone przy każdym starcie a od LAB2 wstawiane tylko do pustej bazy):
 - `M-001` - członek `U-100`, `open`, 2026-10-01 – 2026-12-31, `active`,
 - `M-002` - członek `U-200`, `morning`, 2026-09-01 – 2026-11-30, `suspended` do 2026-10-25.
 
@@ -260,10 +260,10 @@ API Gateway
 
 ## 6. Dokumentacja wykorzystana podczas pracy
 
-| Odnośnik do fragmentu | Rozwiązywany problem | Co zastosowano w kodzie | Jak sprawdzono działanie |
-|---|---|---|---|
-| [Body - Fields](https://fastapi.tiangolo.com/tutorial/body-fields/) | walidacja zakresu i długości danych wejściowych bez ręcznego sprawdzania | `Field(min_length=1, max_length=50)` dla `member_id`, `Field(ge=1, le=30)` dla `days` w modelach Pydantic | `test_suspend_too_long_returns_422_and_keeps_state`; ręcznie w `/docs`: `{"days": 45}` → 422 |
-| [Handling Errors](https://fastapi.tiangolo.com/tutorial/handling-errors/) | zwracanie 404 i 409 z opisem zamiast błędu serwera | `HTTPException(status_code=404, detail=...)` w `get_or_404` oraz 409 w POST, suspend i resume | `test_unknown_membership_returns_404`, `test_duplicate_current_membership_returns_409`; ręcznie w `/docs`: `GET /memberships/M-999` → 404 |
+| Odnośnik do fragmentu                                                     | Rozwiązywany problem                                                     | Co zastosowano w kodzie                                                                                                                                         | Jak sprawdzono działanie                                                                                                                  |
+|---------------------------------------------------------------------------|--------------------------------------------------------------------------|-----------------------------------------------------------------------------------------------------------------------------------------------------------------|-------------------------------------------------------------------------------------------------------------------------------------------|
+| [Body - Fields](https://fastapi.tiangolo.com/tutorial/body-fields/)       | walidacja zakresu i długości danych wejściowych bez ręcznego sprawdzania | `Field(min_length=1, max_length=50)` dla `member_id`, `Field(ge=1, le=30)` dla `days` w modelach Pydantic                                                       | `test_suspend_too_long_returns_422_and_keeps_state`; ręcznie w `/docs`: `{"days": 45}` → 422                                              |
+| [Handling Errors](https://fastapi.tiangolo.com/tutorial/handling-errors/) | zwracanie 404 i 409 z opisem zamiast błędu serwera                       | `HTTPException(status_code=404, detail=...)` w endpointach po wyjątku MembershipNotFound z repozytorium oraz 409 po MembershipConflict w POST, suspend i resume | `test_unknown_membership_returns_404`, `test_duplicate_current_membership_returns_409`; ręcznie w `/docs`: `GET /memberships/M-999` → 404 |
 
 
 ## 7. Ograniczenia, autorzy i AI
@@ -307,7 +307,7 @@ Dane są przechowywane w pamięci procesu **(stan LAB1 — od LAB2 dane są w SQ
   | `suspended_until` | `DATE` | może być `NULL` |
 
   Jedna tabela, bez powiązań — usługa ma jeden agregat (karnet). Ograniczenia `CHECK` są drugą linią obrony; walidację wejścia nadal robi Pydantic (SQLite nie egzekwuje długości `String(n)`).
-- **Co chroni baza, a co reguła biznesowa:** baza chroni unikalność `id` i podstawową poprawność wartości (`CHECK`). Reguła „zawieszenie tylko dla `active`, na 1–30 dni”, „jeden aktualny karnet na członka” i „wznowienie tylko `suspended`” są sprawdzane w `MembershipRepository` w ramach transakcji: odczyt stanu → sprawdzenie reguły → zmiana → commit. Wyjątek w bloku `with sessions.begin()` powoduje rollback, więc odrzucona operacja nie zostawia częściowej zmiany.
+- **Co chroni baza, a co reguła biznesowa:** baza chroni unikalność `id` i podstawową poprawność wartości (`CHECK`). Reguła „zawieszenie tylko dla `active`, na 1–30 dni”, „jeden aktualny karnet na członka” i „wznowienie tylko `suspended`” są sprawdzane w `MembershipRepository` w ramach transakcji: odczyt stanu -> sprawdzenie reguły -> zmiana -> commit. Wyjątek w bloku `with sessions.begin()` powoduje rollback, więc odrzucona operacja nie zostawia częściowej zmiany. Na 409 zamieniane jest tylko naruszenie unikalności klucza (UNIQUE constraint failed). Inne błędy bazy, np. naruszenie CHECK, nie są maskowane jako konflikt, bo oznaczają błąd w kodzie, a nie konflikt danych klienta (`test test_only_unique_violation_is_mapped_to_conflict`).
 - **Zachowana reguła biznesowa:** `PATCH /memberships/M-001/suspend` z `{"days": 14}` → 200 (`suspended`, `valid_to` +14 dni); `{"days": 45}` → 422; ponowne zawieszenie `M-002` (już `suspended`) → 409, bez zmiany w bazie.
 - **Nowe id:** największy numer w bazie + 1 (zamiast licznika w pamięci, który po restarcie zaczynałby od nowa).
 - **Odczyt objęty cache:** `GET /memberships/{membership_id}` — najczęstszy odczyt (sprawdzenie karnetu przez recepcję i w przyszłości przez Booking Service). Lista nie jest cache’owana (wymagałaby unieważniania przy każdej zmianie dowolnego karnetu).
@@ -324,14 +324,14 @@ Wynik: `.\.venv\Scripts\python.exe -m pytest -q` → `15 passed`.
 - Zachowane testy LAB1 (bez zmian w asercjach): `tests/test_health.py`, `tests/test_memberships.py` (8 testów) — teraz działają na bazie.
 - Nowe testy LAB2 (`tests/test_persistence_and_cache.py`):
 
-| Test | Co wykazuje |
-|---|---|
-| `test_changes_survive_new_app_instance` | **trwałość:** POST (M-003) i zawieszenie M-001 w pierwszej instancji; druga instancja z tym samym plikiem bazy i pustym cache zwraca M-003 i zawieszony M-001 z `X-Cache: MISS`; `seed()` nie nadpisuje zmian |
-| `test_miss_then_hit_reads_database_once` | **HIT/MISS:** pierwszy GET `MISS`, drugi `HIT`, ta sama treść; licznik wywołań `repository.get` = 1; TTL wpisu = 60 |
-| `test_suspend_invalidates_cache` | **unieważnienie:** po HIT i `PATCH suspend` klucz znika z Redis, następny GET → `MISS` z nowym statusem i `valid_to` |
-| `test_redis_outage_does_not_block_read_or_write` | **awaria cache:** przy niedostępnym Redis GET → 200 `BYPASS`, PATCH → 200, POST → 201; po powrocie Redis dane z bazy są aktualne |
-| `test_failed_invalidation_can_leave_stale_value` | **ograniczenie:** po nieudanym `DEL` cache zwraca starą wartość (`HIT`, `active`), choć w bazie jest `suspended` |
-| `test_rejected_suspend_rolls_back_and_keeps_database_state` | **rollback:** 409 przy zawieszeniu M-002, stan w bazie (odczyt z repozytorium z pominięciem cache) bez zmian |
+| Test                                                        | Co wykazuje                                                                                                                                                                                                   |
+|-------------------------------------------------------------|---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
+| `test_changes_survive_new_app_instance`                     | **trwałość:** POST (M-003) i zawieszenie M-001 w pierwszej instancji; druga instancja z tym samym plikiem bazy i pustym cache zwraca M-003 i zawieszony M-001 z `X-Cache: MISS`; `seed()` nie nadpisuje zmian |
+| `test_miss_then_hit_reads_database_once`                    | **HIT/MISS:** pierwszy GET `MISS`, drugi `HIT`, ta sama treść; licznik wywołań `repository.get` = 1; TTL wpisu = 60                                                                                           |
+| `test_suspend_invalidates_cache`                            | **unieważnienie:** po HIT i `PATCH suspend` klucz znika z Redis, następny GET → `MISS` z nowym statusem i `valid_to`                                                                                          |
+| `test_redis_outage_does_not_block_read_or_write`            | **awaria cache:** przy niedostępnym Redis GET → 200 `BYPASS`, PATCH → 200, POST → 201; po powrocie Redis dane z bazy są aktualne                                                                              |
+| `test_failed_invalidation_can_leave_stale_value`            | **ograniczenie:** po nieudanym `DEL` cache zwraca starą wartość (`HIT`, `active`), choć w bazie jest `suspended`                                                                                              |
+| `test_rejected_suspend_rolls_back_and_keeps_database_state` | **rollback:** 409 przy zawieszeniu M-002, stan w bazie (odczyt z repozytorium z pominięciem cache) bez zmian                                                                                                  |
 
 `MemoryRedis` nie symuluje upływu TTL — wygaśnięcie sprawdzono ręcznie z prawdziwym Redis (8.3).
 
@@ -339,15 +339,15 @@ Wynik: `.\.venv\Scripts\python.exe -m pytest -q` → `15 passed`.
 
 Środowisko: Redis 7 w Dockerze (`lab2-redis`), Uvicorn na porcie 8101 bez `--reload`, `$key = "${env:CACHE_PREFIX}:membership:M-001"`. Stan początkowy: usunięty `app.db` (świeże dane M-001, M-002) i usunięty klucz `$key`. GET przez `curl.exe -i`, PATCH przez Swagger UI.
 
-| Scenariusz | Stan początkowy i żądanie | Oczekiwany wynik | Wynik rzeczywisty | Reset |
-|---|---|---|---|---|
-| MISS → HIT | pusty cache, TTL 60; 2× `GET /memberships/M-001`, `redis-cli TTL $key` | MISS, potem HIT, ta sama treść; TTL ≤ 60 | MISS, HIT (`active`); TTL = 42 | `redis-cli DEL $key` |
-| Wygaśnięcie TTL | wpis w cache; odczekanie > 60 s; `TTL $key`, GET | TTL = -2, GET → MISS | TTL = -2; GET → MISS; nowy TTL = 43 | samoczynnie po TTL |
-| Reguła: sukces i odrzucenie bez zmiany | M-001 `active` (w cache, HIT); `PATCH M-001/suspend {"days": 45}`; `{"days": 14}`; `PATCH M-002/suspend {"days": 5}`; GET M-002 | 422; 200 `suspended`, `valid_to` 2027-01-14; 409; M-002 bez zmian | 422; 200 `suspended`, `valid_to` 2027-01-14, `suspended_until` 2026-11-09; 409; M-002 `suspended`, `valid_to` 2026-11-30 | usunięcie `app.db` |
-| Zmiana i unieważnienie | M-001 w cache (HIT); `PATCH M-001/suspend {"days": 14}`; `redis-cli EXISTS $key`; GET | EXISTS = 0; GET → MISS z nowym stanem | EXISTS = 0; GET → MISS, `suspended`, `valid_to` 2027-01-14 | — |
-| Zapis i odczyt po restarcie bez cache | M-001 zawieszony; `Ctrl+C`, ponowny start Uvicorna; `redis-cli DEL $key`; GET | MISS, nadal `suspended`, `valid_to` 2027-01-14 | MISS, `suspended`, `valid_to` 2027-01-14 — zmiana przetrwała restart, dane z bazy | usunięcie `app.db` |
-| Awaria GET i DELETE cache | `redis-cli DEL $key`; `docker stop lab2-redis`; GET; `PATCH M-001/resume`; `docker start lab2-redis`; GET | GET → 200 BYPASS; resume → 200 mimo nieudanego `DEL`; po starcie Redis GET → MISS, `active` | GET → 200 `BYPASS`; log `Cache unavailable; reading database`; resume → 200 `active`, log `Invalidation failed; old value may survive until TTL`; po `docker start` GET → MISS, `active` | `docker start lab2-redis` |
-| Przywrócenie Redis, możliwa stara wartość | TTL 300; GET → MISS (`suspended` w cache, TTL 296); restart Uvicorna z `REDIS_URL=redis://127.0.0.1:9999/0`; GET; `PATCH M-001/resume`; restart z poprawnym adresem; GET; `TTL $key`; `DEL $key`; GET | BYPASS; resume 200 (`active` w bazie); po przywróceniu: HIT ze starym `suspended`; po `DEL` → MISS z `active` | BYPASS; resume → 200 `active`; po przywróceniu GET → **HIT, `suspended`** (stara wartość), TTL = 239; `DEL` = 1; GET → MISS, `active` | `redis-cli DEL $key`, przywrócenie `CACHE_TTL_SECONDS=60` |
+| Scenariusz                                | Stan początkowy i żądanie                                                                                                                                                                             | Oczekiwany wynik                                                                                              | Wynik rzeczywisty                                                                                                                                                                        | Reset                                                     |
+|-------------------------------------------|-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|---------------------------------------------------------------------------------------------------------------|------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|-----------------------------------------------------------|
+| MISS → HIT                                | pusty cache, TTL 60; 2× `GET /memberships/M-001`, `redis-cli TTL $key`                                                                                                                                | MISS, potem HIT, ta sama treść; TTL ≤ 60                                                                      | MISS, HIT (`active`); TTL = 42                                                                                                                                                           | `redis-cli DEL $key`                                      |
+| Wygaśnięcie TTL                           | wpis w cache; odczekanie > 60 s; `TTL $key`, GET                                                                                                                                                      | TTL = -2, GET → MISS                                                                                          | TTL = -2; GET → MISS; nowy TTL = 43                                                                                                                                                      | samoczynnie po TTL                                        |
+| Reguła: sukces i odrzucenie bez zmiany    | M-001 `active` (w cache, HIT); `PATCH M-001/suspend {"days": 45}`; `{"days": 14}`; `PATCH M-002/suspend {"days": 5}`; GET M-002                                                                       | 422; 200 `suspended`, `valid_to` 2027-01-14; 409; M-002 bez zmian                                             | 422; 200 `suspended`, `valid_to` 2027-01-14, `suspended_until` 2026-11-09; 409; M-002 `suspended`, `valid_to` 2026-11-30                                                                 | usunięcie `app.db`                                        |
+| Zmiana i unieważnienie                    | M-001 w cache (HIT); `PATCH M-001/suspend {"days": 14}`; `redis-cli EXISTS $key`; GET                                                                                                                 | EXISTS = 0; GET → MISS z nowym stanem                                                                         | EXISTS = 0; GET → MISS, `suspended`, `valid_to` 2027-01-14                                                                                                                               | —                                                         |
+| Zapis i odczyt po restarcie bez cache     | M-001 zawieszony; `Ctrl+C`, ponowny start Uvicorna; `redis-cli DEL $key`; GET                                                                                                                         | MISS, nadal `suspended`, `valid_to` 2027-01-14                                                                | MISS, `suspended`, `valid_to` 2027-01-14 — zmiana przetrwała restart, dane z bazy                                                                                                        | usunięcie `app.db`                                        |
+| Awaria GET i DELETE cache                 | `redis-cli DEL $key`; `docker stop lab2-redis`; GET; `PATCH M-001/resume`; `docker start lab2-redis`; GET                                                                                             | GET → 200 BYPASS; resume → 200 mimo nieudanego `DEL`; po starcie Redis GET → MISS, `active`                   | GET → 200 `BYPASS`; log `Cache unavailable; reading database`; resume → 200 `active`, log `Invalidation failed; old value may survive until TTL`; po `docker start` GET → MISS, `active` | `docker start lab2-redis`                                 |
+| Przywrócenie Redis, możliwa stara wartość | TTL 300; GET → MISS (`suspended` w cache, TTL 296); restart Uvicorna z `REDIS_URL=redis://127.0.0.1:9999/0`; GET; `PATCH M-001/resume`; restart z poprawnym adresem; GET; `TTL $key`; `DEL $key`; GET | BYPASS; resume 200 (`active` w bazie); po przywróceniu: HIT ze starym `suspended`; po `DEL` → MISS z `active` | BYPASS; resume → 200 `active`; po przywróceniu GET → **HIT, `suspended`** (stara wartość), TTL = 239; `DEL` = 1; GET → MISS, `active`                                                    | `redis-cli DEL $key`, przywrócenie `CACHE_TTL_SECONDS=60` |
 
 Wnioski z eksperymentów:
 - Dane przetrwały restart Uvicorna, bo są w pliku `app.db`, a nie w pamięci procesu; `seed()` wstawia dane początkowe tylko do pustej tabeli.
@@ -356,12 +356,12 @@ Wnioski z eksperymentów:
 
 ### 8.4. Porównanie i ograniczenia
 
-| Cecha | Pamięć procesu (LAB1) | SQLite (LAB2) | Redis jako cache (LAB2) |
-|---|---|---|---|
-| Rola | stan procesu | trwałe źródło prawdy | odtwarzalna kopia `GET /memberships/{id}` |
-| Restart Uvicorna | zmiany znikają | plik `app.db` pozostaje | osobny proces, wpis może przetrwać do końca TTL |
-| Brak danych | stan utracony | brak rekordu → 404 | MISS — normalna sytuacja |
-| Trudność | utrata zmian | schemat, transakcje, błędy | aktualność, TTL, awarie |
+| Cecha            | Pamięć procesu (LAB1) | SQLite (LAB2)              | Redis jako cache (LAB2)                         |
+|------------------|-----------------------|----------------------------|-------------------------------------------------|
+| Rola             | stan procesu          | trwałe źródło prawdy       | odtwarzalna kopia `GET /memberships/{id}`       |
+| Restart Uvicorna | zmiany znikają        | plik `app.db` pozostaje    | osobny proces, wpis może przetrwać do końca TTL |
+| Brak danych      | stan utracony         | brak rekordu → 404         | MISS — normalna sytuacja                        |
+| Trudność         | utrata zmian          | schemat, transakcje, błędy | aktualność, TTL, awarie                         |
 
 1. **Co zmieniło się dla klienta API, a co wewnątrz usługi?** Dla klienta nic poza nagłówkiem `X-Cache` i tym, że zmiany przetrwają restart. Wewnątrz: magazyn (SQLite + SQLAlchemy), repozytorium z transakcjami, cache-aside w Redis, `lifespan` przygotowujący bazę i klienta Redis.
 2. **Dlaczego baza i cache nie zmieniają automatycznie aplikacji w system mikroserwisowy?** To nadal jeden proces z jedną odpowiedzialnością. O mikrousługach decyduje podział odpowiedzialności, własność danych, niezależne wdrażanie i komunikacja przez sieć między usługami — baza i cache to tylko magazyny tej jednej usługi.
@@ -380,14 +380,14 @@ Ograniczenia:
 
 ### 8.5. Dokumentacja wykorzystana w LAB2
 
-| Źródło | Problem | Zastosowanie | Weryfikacja |
-|---|---|---|---|
-| [SQLAlchemy — Session Basics: Framing out a begin / commit / rollback block](https://docs.sqlalchemy.org/en/20/orm/session_basics.html#framing-out-a-begin-commit-rollback-block) | odrzucona operacja nie może zostawić częściowej zmiany | `with self.sessions.begin() as db:` w `MembershipRepository` — commit przy poprawnym wyjściu z bloku, rollback przy wyjątku; nowa sesja na każdą operację | `test_rejected_suspend_rolls_back_and_keeps_database_state`, `test_suspend_already_suspended_returns_409_and_keeps_state`; ręcznie: 409 dla M-002 i niezmieniony M-002 |
-| [redis-py — Connecting to Redis](https://redis.readthedocs.io/en/stable/connections.html) | niedostępny Redis nie może blokować API | `Redis.from_url(..., socket_connect_timeout=0.3, socket_timeout=0.3, retry=Retry(NoBackoff(), 0))` w `make_redis` i łapanie `RedisError` w `JsonCache` | `test_redis_outage_does_not_block_read_or_write`; ręcznie: `docker stop lab2-redis` → GET 200 `BYPASS` |
-| [FastAPI — Testing Events: lifespan and startup/shutdown](https://fastapi.tiangolo.com/advanced/testing-events/) | baza i Redis tworzone w `lifespan` muszą istnieć w testach | fixture `client` w `conftest.py` używa `with TestClient(app)`, co uruchamia `lifespan` | wszystkie 15 testów; bez `with` testy kończą się błędem braku `app.state.repository` |
+| Źródło                                                                                                                                                                            | Problem                                                    | Zastosowanie                                                                                                                                              | Weryfikacja                                                                                                                                                            |
+|-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|------------------------------------------------------------|-----------------------------------------------------------------------------------------------------------------------------------------------------------|------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
+| [SQLAlchemy — Session Basics: Framing out a begin / commit / rollback block](https://docs.sqlalchemy.org/en/20/orm/session_basics.html#framing-out-a-begin-commit-rollback-block) | odrzucona operacja nie może zostawić częściowej zmiany     | `with self.sessions.begin() as db:` w `MembershipRepository` — commit przy poprawnym wyjściu z bloku, rollback przy wyjątku; nowa sesja na każdą operację | `test_rejected_suspend_rolls_back_and_keeps_database_state`, `test_suspend_already_suspended_returns_409_and_keeps_state`; ręcznie: 409 dla M-002 i niezmieniony M-002 |
+| [redis-py — Connecting to Redis](https://redis.readthedocs.io/en/stable/connections.html)                                                                                         | niedostępny Redis nie może blokować API                    | `Redis.from_url(..., socket_connect_timeout=0.3, socket_timeout=0.3, retry=Retry(NoBackoff(), 0))` w `make_redis` i łapanie `RedisError` w `JsonCache`    | `test_redis_outage_does_not_block_read_or_write`; ręcznie: `docker stop lab2-redis` → GET 200 `BYPASS`                                                                 |
+| [FastAPI — Testing Events: lifespan and startup/shutdown](https://fastapi.tiangolo.com/advanced/testing-events/)                                                                  | baza i Redis tworzone w `lifespan` muszą istnieć w testach | fixture `client` w `conftest.py` używa `with TestClient(app)`, co uruchamia `lifespan`                                                                    | wszystkie 15 testów; bez `with` testy kończą się błędem braku `app.state.repository`                                                                                   |
 
 ### 8.6. Autorzy, AI i kolejny etap
 
 - Wkład: Dominik — usługa i dokumentacja LAB1; Julia — LAB2: baza SQLite, cache Redis, testy, ręczne scenariusze i dokumentacja LAB2.
-- AI: Claude (Anthropic) — szkic fragmentów kodu bazy, cache, testów LAB2 i README; `database.py` i `cache.py` z paczki LAB2 bez zmian. Weryfikacja: `pytest -q` (`15 passed`), ręczne scenariusze z 8.3, przeczytanie i omówienie kodu.
+- AI: Claude (Anthropic) — szkic fragmentów kodu bazy, cache, testów LAB2 i README; `database.py` i `cache.py` z paczki LAB2 bez zmian. Weryfikacja: `pytest -q` (`16 passed`), ręczne scenariusze z 8.3, przeczytanie i omówienie kodu.
 - Kolejny etap: rejestracja Membership Service w Eurece (LAB3). Druga usługa bez zmian w planie: Trainer Service (sekcja 1.5).

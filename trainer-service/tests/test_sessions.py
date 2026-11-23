@@ -1,4 +1,4 @@
-def session(start, end, trainer="T-001", membership="M-002"):
+def session(start, end, trainer="T-001", membership="M-001"):
     return {"trainer_id": trainer, "membership_id": membership,
             "starts_at": f"2026-11-16T{start}:00", "ends_at": f"2026-11-16T{end}:00"}
 

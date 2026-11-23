@@ -1,8 +1,9 @@
 from fastapi.testclient import TestClient
 
 from app.main import create_app
-from tests.conftest import CACHE_PREFIX, MemoryRedis
+from tests.conftest import CACHE_PREFIX, FakeEurekaClient, MemoryRedis
 from redis.exceptions import ConnectionError
+
 
 C001_KEY = f"{CACHE_PREFIX}:class:C-001"
 NEW_CLASS = {"name": "Joga", "trainer_id": "T-001", "capacity": 15,
@@ -10,11 +11,11 @@ NEW_CLASS = {"name": "Joga", "trainer_id": "T-001", "capacity": 15,
 
 
 def test_changes_survive_new_app_instance(db_url):
-    with TestClient(create_app(database_url=db_url, redis_client=MemoryRedis())) as first:
+    with TestClient(create_app(database_url=db_url, redis_client=MemoryRedis(),eureka_client=FakeEurekaClient())) as first:
         assert first.post("/classes", json=NEW_CLASS).status_code == 201
         assert first.patch("/classes/C-001/cancel").status_code == 200
 
-    with TestClient(create_app(database_url=db_url, redis_client=MemoryRedis())) as second:
+    with TestClient(create_app(database_url=db_url, redis_client=MemoryRedis(),eureka_client=FakeEurekaClient())) as second:
         r = second.get("/classes/C-003")
         assert r.status_code == 200
         assert r.headers["X-Cache"] == "MISS"
