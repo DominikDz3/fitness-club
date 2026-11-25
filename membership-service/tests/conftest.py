@@ -1,3 +1,5 @@
+from datetime import date
+
 import pytest
 from fastapi.testclient import TestClient
 from redis.exceptions import ConnectionError
@@ -5,6 +7,8 @@ from redis.exceptions import ConnectionError
 from app.main import create_app
 
 CACHE_PREFIX = "lab2:test:membership-service"
+# Stała "dzisiejsza" data testów: M-001 aktywny, M-002 w trakcie pauzy (do 2026-10-25).
+TODAY = date(2026, 10, 15)
 
 
 class MemoryRedis:
@@ -78,6 +82,7 @@ def fake_redis():
 
 @pytest.fixture
 def client(db_url, fake_redis, fake_eureka):
-    app = create_app(database_url=db_url, redis_client=fake_redis, eureka_client=fake_eureka)
+    app = create_app(database_url=db_url, redis_client=fake_redis, eureka_client=fake_eureka,
+                     today=lambda: TODAY)
     with TestClient(app) as test_client:
         yield test_client

@@ -2,7 +2,7 @@ import pytest
 from httpx import ASGITransport, AsyncClient
 
 from app.main import create_app
-from tests.conftest import FakeEurekaClient, MemoryRedis
+from tests.conftest import TODAY, FakeEurekaClient, MemoryRedis
 
 
 @pytest.fixture
@@ -13,7 +13,7 @@ def anyio_backend():
 @pytest.mark.anyio
 async def test_eureka_client_starts_and_stops_with_the_app(db_url):
     fake = FakeEurekaClient()
-    app = create_app(database_url=db_url, redis_client=MemoryRedis(), eureka_client=fake)
+    app = create_app(database_url=db_url, redis_client=MemoryRedis(), eureka_client=fake, today=lambda: TODAY)
 
     async with app.router.lifespan_context(app):
         assert fake.starts == 1 and fake.stops == 0
