@@ -1,5 +1,6 @@
 import os
 from contextlib import asynccontextmanager
+from datetime import date
 
 from fastapi import FastAPI, HTTPException, Request, Response
 
@@ -13,7 +14,7 @@ from app.repository import MembershipConflict, MembershipNotFound, MembershipRep
 SERVICE_NAME = "membership-service"
 
 
-def create_app(database_url=None, redis_client=None, eureka_client=None) -> FastAPI:
+def create_app(database_url=None, redis_client=None, eureka_client=None, today=None) -> FastAPI:
     @asynccontextmanager
     async def storage_lifespan(app):
         engine, sessions = make_database(
@@ -25,7 +26,7 @@ def create_app(database_url=None, redis_client=None, eureka_client=None) -> Fast
                 os.getenv("REDIS_URL", "redis://localhost:6379/0")
             )
             Base.metadata.create_all(engine)
-            repository = MembershipRepository(sessions)
+            repository = MembershipRepository(sessions, today=today or date.today)
             repository.seed()
             app.state.engine = engine
             app.state.redis = client

@@ -104,6 +104,11 @@ Dane początkowe (tworzone przy każdym starcie a od LAB2 wstawiane tylko do pus
 
 Dodatkowo: członek może mieć tylko jeden aktualny karnet (drugi POST dla tego samego `member_id` → 409), a wznowić można tylko karnet `suspended` (inaczej 409). Wszystkie warunki odrzucenia są sprawdzane przed zapisem do magazynu.
 
+**Statusy zależne od daty:** status karnetu zmienia się sam wraz z upływem czasu, nie trzeba wywoływać żadnego endpointu:
+- `suspended` -> `active` w dniu `suspended_until` (zawieszenie się skończyło; `suspended_until` zostaje wyczyszczone),
+- `active` ->`expired` dzień po `valid_to`.
+
+Repozytorium sprawdza to przy każdym odczycie i zapisie karnetu (`_refresh_status` w `repository.py`) i zapisuje nowy status w bazie w tej samej transakcji. Dzięki temu Trainer Service, pytając o karnet przez Eurekę, dostaje aktualny status. Przykład: M-002 ma pauzę do 2026-10-25 — od tego dnia `GET /memberships/M-002` zwraca `active`, a `PATCH /memberships/M-002/resume` daje 409, bo karnet nie jest już zawieszony. Karnet `expired` nie blokuje założenia nowego karnetu temu samemu członkowi. "Dzisiejsza" data jest wstrzykiwana (`create_app(today=...)`), więc testy używają stałej daty 2026-10-15 i nie zależą od dnia uruchomienia.
 
 ## 3. Kontrakt API
 
@@ -271,8 +276,6 @@ API Gateway
 
 Dane są przechowywane w pamięci procesu **(stan LAB1 — od LAB2 dane są w SQLite, patrz sekcja 8)** - restart (także wywołany przez `--reload`) usuwa zmiany i przywraca dane początkowe. Dwie instancje uruchomione na różnych portach mają osobne magazyny i nie współdzielą stanu. Inne ograniczenia:
 - usługa nie sprawdza, czy `member_id` należy do istniejącego członka - dane członków należą do innej usługi, a komunikacja nie jest implementowana na LAB1,
-- status `expired` nie jest ustawiany automatycznie po minięciu `valid_to`,
-- karnet nie wraca sam do `active` po minięciu `suspended_until`; wznowienie jest ręczne (`/resume`),
 - magazyn nie jest zabezpieczony przed równoczesnymi zapisami,
 - pytest wyświetla `DeprecationWarning` z biblioteki Starlette, niezwiązany z kodem usługi.
 
@@ -376,7 +379,7 @@ Ograniczenia:
 - warunek „jeden aktualny karnet na członka” i nadawanie kolejnego `id` nie są chronione przed równoczesnymi żądaniami (brak blokad / unikalnego indeksu częściowego); dwa równoległe POST mogą skończyć się 409 z błędu unikalności `id`,
 - `create_all` tworzy brakujące tabele, ale nie zmienia istniejących kolumn — zmiana schematu wymaga usunięcia `app.db` albo migracji,
 - awaria samego `SET` jest obsłużona w kodzie (odpowiedź `BYPASS`), ale nie została osobno sprawdzona testem API ani ręcznie,
-- statusy `expired` i automatyczne wznowienie po `suspended_until` nadal nie są realizowane (jak w LAB1).
+- zmiana statusu z upływem czasu nie unieważnia cache. Odczyt z cache (`HIT`) może pokazywać stary status najwyżej do końca TTL (60 s).
 
 ### 8.5. Dokumentacja wykorzystana w LAB2
 
